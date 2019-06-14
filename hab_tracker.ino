@@ -5,6 +5,7 @@
 #include <Timer.h>
 #include <Log.h>
 #include <SimpleHDLC.h>
+#include <SimpleMessageProtocol.h>
 #include <TinyGPS++.h>
 
 #define PAN_SERVO 0
@@ -21,17 +22,6 @@ Stream& logging_output_stream = Serial;                     /**< Logging output 
 Stream& command_input_stream = Serial;                      /**< Message and command interface stream */
 
 Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();    /**< Adafruit servo driver object */
-
-enum MESSAGE_TYPES {
-    MESSAGE_TYPE_REPORT_TRACKER_POINT,
-
-    MESSAGE_TYPE_COMMAND_SET_TRACKER_LOCATION,
-    MESSAGE_TYPE_COMMAND_SET_TARGET_POSITION,
-
-    MESSAGE_TYPE_COMMAND_REQUEST_REPORT,
-
-    MESSAGE_TYPE_PROTO_ACK
-};
 
 /**
  * @brief      Callback function handles new messages from HDLC
