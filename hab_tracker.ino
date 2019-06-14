@@ -33,6 +33,8 @@ void handleMessageCallback(hdlcMessage message);
 SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
 Log logger(logging_output_stream, LOG_LEVELS::DEBUG);                /**< Log object */
 
+Timer timer_execution_led;            /**< Timer sets intercal between run led blinks */
+
 /**
  * @brief System setup function
  * @details Initialises all system componenets at start-up
@@ -41,10 +43,19 @@ void setup() {
     //Sleep 5s so that debug can connect
     delay(5000);
 
-    //Start serial port to command PC
-    Serial.begin(57600);
+    //Setup pin modes
+    pinMode(LED_BUILTIN, OUTPUT);
+
+    //Start logger
+    logger.init();
+    logger.event(LOG_LEVELS::INFO, "HAB systems starting...");
+
+    //Start command interface over USB
+    logger.event(LOG_LEVELS::INFO, "Starting USB serial interface...");
+    static_cast<HardwareSerial&>(radio_input_output_stream).begin(57600);
 
     //Initialize PWM driver
+    logger.event(LOG_LEVELS::INFO, "Starting PWM Driver...");
     servo_driver.begin();
     servo_driver.setPWMFreq(SERVO_PWM_FREQUENCY);
 }
@@ -54,13 +65,19 @@ void setup() {
  * @details Called after setup() function, loops inifiteley, everything happens here
  */
 void loop() {
+    timer_execution_led.setInterval(500);                   /**< Sets execution blinky LED interval to 500ms */
+    timer_execution_led.start();
+
 	while(1)
 	{
-		//Get messages from serial port
+		//Get messages from command interface
+        usb.receive();
 
 		//Check if base location is set yet
 
 			//Calculate bearing and azimuth to target
+            //target_bearing = ;
+            //target_azimuth = azimuthTo(tracker.pose.altitude, target.);
 
 			//Get current tilt
 
@@ -70,15 +87,18 @@ void loop() {
 
 			//Move pan until at bearing
 
-        servo_driver.setPWM(PAN_SERVO, 0, PAN_SERVO_PWM_MIN);
-        servo_driver.setPWM(TILT_SERVO, 0, TILT_SERVO_PWM_MIN);
-
-        delay(1000);
-
-        servo_driver.setPWM(PAN_SERVO, 0, PAN_SERVO_PWM_MAX);
-        servo_driver.setPWM(TILT_SERVO, 0, TILT_SERVO_PWM_MAX);
-
-        delay(1000);
+        //Execution LED indicator blinkies
+        if(timer_execution_led.check())
+        {
+            if(digitalRead(LED_BUILTIN) == HIGH)
+            {
+                digitalWrite(LED_BUILTIN, LOW);
+            }
+            else
+            {
+                digitalWrite(LED_BUILTIN, HIGH);
+            }
+        }
 	}
 }
 
