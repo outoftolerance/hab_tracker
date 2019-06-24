@@ -4,6 +4,7 @@
 #include <Adafruit_PWMServoDriver.h>
 #include <Timer.h>
 #include <Log.h>
+#include <Telemetry.h>
 #include <SimpleHDLC.h>
 #include <SimpleMessageProtocol.h>
 #include <TinyGPS++.h>
@@ -32,6 +33,7 @@ void handleMessageCallback(hdlcMessage message);
 
 SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
 Log logger(logging_output_stream, LOG_LEVELS::DEBUG);                /**< Log object */
+Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF);              /**< Telemetry object */
 
 Timer timer_execution_led;            /**< Timer sets intercal between run led blinks */
 
