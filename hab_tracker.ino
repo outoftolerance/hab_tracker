@@ -52,7 +52,7 @@ void setup() {
 
     //Start command interface over USB
     logger.event(LOG_LEVELS::INFO, "Starting USB serial interface...");
-    static_cast<HardwareSerial&>(radio_input_output_stream).begin(57600);
+    static_cast<HardwareSerial&>(command_input_stream).begin(57600);
 
     //Initialize PWM driver
     logger.event(LOG_LEVELS::INFO, "Starting PWM Driver...");
