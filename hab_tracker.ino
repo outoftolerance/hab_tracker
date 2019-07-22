@@ -35,7 +35,8 @@ SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC m
 Log logger(logging_output_stream, LOG_LEVELS::DEBUG);                /**< Log object */
 Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF);              /**< Telemetry object */
 
-Timer timer_execution_led;            /**< Timer sets intercal between run led blinks */
+Timer timer_execution_led;            /**< Timer sets interval between run led blinks */
+Timer timer_telemetry_check;          /**< Timer sets interval between telemetry checks */
 
 /**
  * @brief System setup function
@@ -50,11 +51,19 @@ void setup() {
 
     //Start logger
     logger.init();
-    logger.event(LOG_LEVELS::INFO, "HAB systems starting...");
+    logger.event(LOG_LEVELS::INFO, "HAB Tracker systems starting...");
 
     //Start command interface over USB
     logger.event(LOG_LEVELS::INFO, "Starting USB serial interface...");
-    static_cast<HardwareSerial&>(command_input_stream).begin(57600);
+    //static_cast<HardwareSerial&>(command_input_stream).begin(57600);
+
+    //Initialise the telemetry system
+    logger.event(LOG_LEVELS::INFO, "Initialising Telemetry subsystem...");
+    if(!telemetry.init())
+    {
+        logger.event(LOG_LEVELS::FATAL, "Failed to initialise Telemetry subsystem!");
+        while(1);
+    }
 
     //Initialize PWM driver
     logger.event(LOG_LEVELS::INFO, "Starting PWM Driver...");
@@ -69,11 +78,31 @@ void setup() {
 void loop() {
     timer_execution_led.setInterval(500);                   /**< Sets execution blinky LED interval to 500ms */
     timer_execution_led.start();
+    timer_telemetry_check.setInterval(100);
+    timer_telemetry_check.start();
+    TelemetryStruct current_telemetry;                      /**< Current telemetry */
 
 	while(1)
 	{
 		//Get messages from command interface
         usb.receive();
+
+        //Telemetry Update
+        if(timer_telemetry_check.check())
+        {
+            //Get latest telemetry
+            logger.event(LOG_LEVELS::DEBUG, "Getting update from Telemetry subsystem.");
+
+            if(!telemetry.get(current_telemetry))
+            {
+                logger.event(LOG_LEVELS::ERROR, "Failed to get update from Telemetry subsystem!");
+            }
+            else
+            {
+                logger.event(LOG_LEVELS::DEBUG, "Telemetry updated completed.");
+                timer_telemetry_check.reset();
+            }
+        }
 
 		//Check if base location is set yet
 
@@ -101,6 +130,20 @@ void loop() {
                 digitalWrite(LED_BUILTIN, HIGH);
             }
         }
+
+        //Print a bunch of debug information
+        logger.event(LOG_LEVELS::DEBUG, "Current GPS Latitude   ", current_telemetry.latitude);
+        logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude  ", current_telemetry.longitude);
+        logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude   ", current_telemetry.altitude);
+        logger.event(LOG_LEVELS::DEBUG, "Current GPS Course     ", current_telemetry.course);
+        logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll       ", current_telemetry.roll);
+        logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch      ", current_telemetry.pitch);
+        logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading    ", current_telemetry.heading);
+        logger.event(LOG_LEVELS::DEBUG, "Current IMU Altitude   ", current_telemetry.altitude_barometric);
+        logger.event(LOG_LEVELS::DEBUG, "Current IMU Pressure   ", current_telemetry.pressure);
+        logger.event(LOG_LEVELS::DEBUG, "Current IMU Temperature", current_telemetry.temperature);
+
+        delay(500);
 	}
 }
 
