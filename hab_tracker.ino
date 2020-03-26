@@ -35,7 +35,7 @@ float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float
 void stop();
 
 SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
-Log logger(logging_output_stream, LOG_LEVELS::DEBUG);                /**< Log object */
+Log logger(logging_output_stream, LOG_LEVELS::INFO);                /**< Log object */
 Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF);              /**< Telemetry object */
 
 Timer timer_execution_led;            /**< Timer sets interval between run led blinks */
@@ -117,7 +117,12 @@ void loop() {
 		//Check if base location is set yet
 
 			//Calculate bearing and azimuth to target
-            float target_azimuth = calcAzimuthTo(0, 1, 1) - current_telemetry.roll + 90;
+            float target_azimuth = calcAzimuthTo(0, 1, 1);
+            float current_azumuth = current_telemetry.roll - 85;
+            float azimuth_error = current_azumuth - target_azimuth;
+            logger.event(LOG_LEVELS::INFO, "Current Azimuth       ", current_azumuth);
+            logger.event(LOG_LEVELS::INFO, "Target Azimuth        ", target_azimuth);
+            logger.event(LOG_LEVELS::INFO, "Azimuth Error         ", azimuth_error);
 
 			//Move tilt until at azimuth
             int tilt_pulse = map(target_azimuth, 0, 90, TILT_SERVO_PWM_MIN, TILT_SERVO_PWM_MAX);
@@ -144,7 +149,7 @@ void loop() {
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude  ", current_telemetry.longitude);
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude   ", current_telemetry.altitude);
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Course     ", current_telemetry.course);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll       ", current_telemetry.roll);
+            logger.event(LOG_LEVELS::INFO, "Current IMU Roll       ", current_telemetry.roll);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch      ", current_telemetry.pitch);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading    ", current_telemetry.heading);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Altitude   ", current_telemetry.altitude_barometric);
@@ -160,7 +165,7 @@ float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float
 {
 	float altitude_difference = target_altitude - base_altitude;
 
-	return atan2(altitude_difference, target_horizontal_distance);
+	return atan2(altitude_difference, target_horizontal_distance) * 180 / M_PI;
 }
 
 void handleMessageCallback(hdlcMessage message)
