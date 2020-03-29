@@ -1,5 +1,6 @@
 #include <Wire.h>
 #include <Math.h>
+#include <PID_v1.h>
 
 #include <Adafruit_PWMServoDriver.h>
 #include <Timer.h>
@@ -13,11 +14,13 @@
 #define TILT_SERVO 1
 
 #define SERVO_PWM_FREQUENCY 60  // Analog servos run at ~60 Hz updates
+#define SERVO_PWM_STEP 1        // Size of PWM step for each servo update
+#define SERVO_UPDATE_INTERVAL 25 // Millisecond interval between servo updates
 
-#define PAN_SERVO_PWM_MIN  150  // this is the 'minimum' pulse length count (out of 4096)
-#define PAN_SERVO_PWM_MAX  600  // this is the 'maximum' pulse length count (out of 4096)
-#define TILT_SERVO_PWM_MIN  262 // this is the 'minimum' pulse length count (out of 4096)
-#define TILT_SERVO_PWM_MAX  488 // this is the 'maximum' pulse length count (out of 4096)
+#define PAN_SERVO_PWM_MIN  150  // this is the 'minimum' pulse length count (out of 4096) Left
+#define PAN_SERVO_PWM_MAX  600  // this is the 'maximum' pulse length count (out of 4096) Right
+#define TILT_SERVO_PWM_MIN  260 // Vertical
+#define TILT_SERVO_PWM_MAX  470 // Horizontal
 
 Stream& logging_output_stream = Serial;                     /**< Logging output stream, this is of type Serial_ */
 Stream& command_input_stream = Serial;                      /**< Message and command interface stream */
@@ -40,6 +43,7 @@ Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF);              /**< Teleme
 
 Timer timer_execution_led;            /**< Timer sets interval between run led blinks */
 Timer timer_telemetry_check;          /**< Timer sets interval between telemetry checks */
+Timer timer_servo_update_delay;       /**< Timer sets interval between position updates */
 
 /**
  * @brief System setup function
@@ -85,12 +89,16 @@ void setup() {
  */
 void loop() {
     timer_execution_led.setInterval(1000);
-    timer_telemetry_check.setInterval(100);
+    timer_telemetry_check.setInterval(5);
+    timer_servo_update_delay.setInterval(SERVO_UPDATE_INTERVAL);
     
     TelemetryStruct current_telemetry;                      /**< Current telemetry */
 
     timer_execution_led.start();
     timer_telemetry_check.start();
+    timer_servo_update_delay.start();
+
+    double tilt_setpoint, tilt_input, tilt_output = TILT_SERVO_PWM_MAX, tilt_target;
 
 	while(1)
 	{
@@ -114,23 +122,32 @@ void loop() {
             }
         }
 
-		//Check if base location is set yet
+		//Calculate bearing and azimuth to target
+        tilt_setpoint = calcAzimuthTo(0, 1, 1);
+        tilt_setpoint = 45;
+        tilt_input = current_telemetry.roll - 90;
 
-			//Calculate bearing and azimuth to target
-            float target_azimuth = calcAzimuthTo(0, 1, 1);
-            float current_azumuth = current_telemetry.roll - 85;
-            float azimuth_error = current_azumuth - target_azimuth;
-            logger.event(LOG_LEVELS::INFO, "Current Azimuth       ", current_azumuth);
-            logger.event(LOG_LEVELS::INFO, "Target Azimuth        ", target_azimuth);
-            logger.event(LOG_LEVELS::INFO, "Azimuth Error         ", azimuth_error);
+		//Move tilt until at azimuth
+        if(timer_servo_update_delay.check())
+        {
+            tilt_target = map(tilt_setpoint, 0, 90, TILT_SERVO_PWM_MAX, TILT_SERVO_PWM_MIN);
 
-			//Move tilt until at azimuth
-            int tilt_pulse = map(target_azimuth, 0, 90, TILT_SERVO_PWM_MIN, TILT_SERVO_PWM_MAX);
-            servo_driver.setPWM(TILT_SERVO, 0, tilt_pulse);
+            if(tilt_target != tilt_output)
+            {
+                if(tilt_target > tilt_output)
+                {
+                    tilt_output += SERVO_PWM_STEP;
+                }
+                else
+                {
+                    tilt_output -= SERVO_PWM_STEP;
+                }
+            }
+            
+            servo_driver.setPWM(TILT_SERVO, 0, tilt_output);
 
-			//Get current bearing
-
-			//Move pan until at bearing
+            timer_servo_update_delay.reset();
+        }
 
         //Execution LED indicator blinkies
         if(timer_execution_led.check())
@@ -149,7 +166,7 @@ void loop() {
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude  ", current_telemetry.longitude);
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude   ", current_telemetry.altitude);
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Course     ", current_telemetry.course);
-            logger.event(LOG_LEVELS::INFO, "Current IMU Roll       ", current_telemetry.roll);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll       ", current_telemetry.roll);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch      ", current_telemetry.pitch);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading    ", current_telemetry.heading);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Altitude   ", current_telemetry.altitude_barometric);

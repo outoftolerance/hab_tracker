@@ -1,0 +1,12 @@
+Magnetic Offset
+-5.69
+-6.07
+31.82
+
+Magnetic Mapping
+0.986 -0.035 0.032
+-0.035 0.907 0.037
+0.032 0.037 1.122
+
+Magnetic Field Strength
+44.43
