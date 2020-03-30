@@ -35,6 +35,7 @@ Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();    /**< Adafru
 void handleMessageCallback(hdlcMessage message);
 
 float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float target_altitude);
+int calcServoMode(float setpoint, float current, int step, int min, int max)
 void stop();
 
 SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
@@ -130,19 +131,7 @@ void loop() {
 		//Move tilt until at azimuth
         if(timer_servo_update_delay.check())
         {
-            tilt_target = map(tilt_setpoint, 0, 90, TILT_SERVO_PWM_MAX, TILT_SERVO_PWM_MIN);
-
-            if(tilt_target != tilt_output)
-            {
-                if(tilt_target > tilt_output)
-                {
-                    tilt_output += SERVO_PWM_STEP;
-                }
-                else
-                {
-                    tilt_output -= SERVO_PWM_STEP;
-                }
-            }
+            tilt_output = calcServoMove(float tilt_setpoint, float tilt_output, int SERVO_PWM_STEP, int TILT_SERVO_PWM_MAX, int TILT_SERVO_PWM_MIN)
             
             servo_driver.setPWM(TILT_SERVO, 0, tilt_output);
 
@@ -183,6 +172,30 @@ float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float
 	float altitude_difference = target_altitude - base_altitude;
 
 	return atan2(altitude_difference, target_horizontal_distance) * 180 / M_PI;
+}
+
+int calcServoMove(float setpoint, float current, int step, int min, int max)
+{
+    int output
+    target = map(setpoint, 0, 90, min, max);
+
+    if(target != current)
+    {
+        if(target - current > SERVO_PWM_STEP)
+        {
+            output += SERVO_PWM_STEP;
+        }
+        else if(target - current < SERVO_PWM_STEP)
+        {
+            output -= SERVO_PWM_STEP;
+        }
+        else
+        {
+            output = target;
+        }
+    }
+
+    return output;
 }
 
 void handleMessageCallback(hdlcMessage message)
