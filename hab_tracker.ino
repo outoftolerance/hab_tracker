@@ -33,13 +33,25 @@ SimpleServo pan_servo(PAN_SERVO_PWM_MIN, PAN_SERVO_PWM_MAX, PAN_SERVO_CHANNEL, &
  * @param[in]  message  The message to be handled
  */
 void handleMessageCallback(hdlcMessage message);
+void handleMessageSetTrackerTargetLocation(hdlcMessage message);
+void handleMessageSetTrackerLocation(hdlcMessage message);
+void handleMessageSetTrackerPose(hdlcMessage message);
+void handleMessageRequestReport(hdlcMessage message);
+
+void sendReportTrackerPose(Telemetry::AxisData& pose);
 
 float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float target_altitude);
 void stop();
 
 SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
-Log logger(logging_output_stream, LOG_LEVELS::INFO);                /**< Log object */
+Log logger(logging_output_stream, LOG_LEVELS::INFO);                 /**< Log object */
 Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF);              /**< Telemetry object */
+uint8_t node_id_ = 2;
+uint8_t node_type_ = NODE_TYPES::NODE_TYPE_TRACKER;
+
+Telemetry::TelemetryStruct tracker_location;
+Telemetry::TelemetryStruct target_location;
+Telemetry::AxisData tracker_pose;
 
 Timer timer_execution_led;            /**< Timer sets interval between run led blinks */
 Timer timer_telemetry_check;          /**< Timer sets interval between telemetry checks */
@@ -102,7 +114,7 @@ void loop() {
 	while(1)
 	{
 		//Get messages from command interface
-        //usb.receive();
+        usb.receive();
 
         //Telemetry Update
         if(timer_telemetry_check.check())
@@ -178,7 +190,67 @@ void handleMessageCallback(hdlcMessage message)
             logger.event(LOG_LEVELS::INFO, "Received acknowledgement.");
             //handleMessageProtoAck(message);
             break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_PROTO_NACK:
+            logger.event(LOG_LEVELS::INFO, "Received non-acknowledgement.");
+            //handleMessageProtoNack(message);
+            break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_TARGET_LOCATION:
+            logger.event(LOG_LEVELS::INFO, "Received a command to set tracker target.");
+            handleMessageSetTrackerTargetLocation(message);
+            break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_LOCATION:
+            logger.event(LOG_LEVELS::INFO, "Received a command to set tracker location.");
+            handleMessageSetTrackerLocation(message);
+            break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_POSE:
+            logger.event(LOG_LEVELS::INFO, "Received a command to set tracker pose.");
+            handleMessageSetTrackerPose(message);
+            break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_REQUEST_REPORT:
+            logger.event(LOG_LEVELS::INFO, "Received a command to request a report.");
+            handleMessageRequestReport(message);
+            break;
     }
+}
+
+void handleMessageSetTrackerTargetLocation(hdlcMessage message)
+{
+    target_location.latitude = 0;
+    target_location.longitude = 0;
+    target_location.altitude = 0;
+}
+
+void handleMessageSetTrackerLocation(hdlcMessage message)
+{
+    tracker_location.latitude = 0;
+    tracker_location.longitude = 0;
+    tracker_location.altitude = 0;
+}
+
+void handleMessageSetTrackerPose(hdlcMessage message)
+{
+    tracker_pose.x = 0; // North rotation = Roll
+    tracker_pose.y = 0; // West rotation = Pitch
+    tracker_pose.z = 0; // Up rotation = Yaw
+}
+
+void handleMessageRequestReport(hdlcMessage message)
+{
+    
+}
+
+void sendReportTrackerPose(Telemetry::AxisData& pose)
+{
+    hdlcMessage message;
+    smpMessageReportTrackerPose tracker_pose;
+
+    tracker_pose.roll = pose.x;
+    tracker_pose.pitch = pose.y;
+    tracker_pose.yaw = pose.z;
+
+    smpMessageReportPositionEncode(node_id_, node_type_, position, message);
+
+    usb.send(message);
 }
 
 void stop()
