@@ -27,22 +27,6 @@ Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();    /**< Adafru
 SimpleServo tilt_servo(TILT_SERVO_PWM_MIN, TILT_SERVO_PWM_MAX, TILT_SERVO_CHANNEL, &servo_driver);
 SimpleServo pan_servo(PAN_SERVO_PWM_MIN, PAN_SERVO_PWM_MAX, PAN_SERVO_CHANNEL, &servo_driver);
 
-/**
- * @brief      Callback function handles new messages from HDLC
- *
- * @param[in]  message  The message to be handled
- */
-void handleMessageCallback(hdlcMessage message);
-void handleMessageSetTrackerTargetLocation(hdlcMessage message);
-void handleMessageSetTrackerLocation(hdlcMessage message);
-void handleMessageSetTrackerPose(hdlcMessage message);
-void handleMessageRequestReport(hdlcMessage message);
-
-void sendReportTrackerPose(Telemetry::AxisData& pose);
-
-float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float target_altitude);
-void stop();
-
 SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
 Log logger(logging_output_stream, LOG_LEVELS::INFO);                 /**< Log object */
 Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF);              /**< Telemetry object */
@@ -51,7 +35,6 @@ uint8_t node_type_ = NODE_TYPES::NODE_TYPE_TRACKER;
 
 Telemetry::TelemetryStruct tracker_location;
 Telemetry::TelemetryStruct target_location;
-Telemetry::AxisData tracker_pose;
 
 Timer timer_execution_led;            /**< Timer sets interval between run led blinks */
 Timer timer_telemetry_check;          /**< Timer sets interval between telemetry checks */
@@ -103,7 +86,7 @@ void loop() {
     timer_execution_led.setInterval(1000);
     timer_telemetry_check.setInterval(5);
     
-    TelemetryStruct current_telemetry;                      /**< Current telemetry */
+    Telemetry::TelemetryStruct current_telemetry;                      /**< Current telemetry */
 
     timer_execution_led.start();
     timer_telemetry_check.start();
@@ -134,15 +117,19 @@ void loop() {
         }
 
 		//Calculate bearing and azimuth to target
-        tilt_setpoint = calcAzimuthTo(0, 1, 1);
-        pan_setpoint = TinyGPSPlus::courseTo(0, 0, 1, 1);
+        tilt_setpoint = calcAzimuthTo(tracker_location.altitude, target_location.altitude, TinyGPSPlus::distanceBetween(tracker_location.latitude, tracker_location.longitude, target_location.latitude, target_location.longitude));
+        pan_setpoint = TinyGPSPlus::courseTo(tracker_location.latitude, tracker_location.longitude, target_location.latitude, target_location.longitude);
 
-		//Move tilt until at azimuth
+		//Move servos until at target
         tilt_servo.setTargetAngle(tilt_setpoint);
         tilt_servo.update();
-
+        
         pan_servo.setTargetAngle(pan_setpoint);
         pan_servo.update();
+
+        //Update current tracker pose
+        tracker_location.pitch = tilt_servo.getCurrentAngle();
+        tracker_location.heading = pan_servo.getCurrentAngle();
 
         //Execution LED indicator blinkies
         if(timer_execution_led.check())
@@ -229,9 +216,7 @@ void handleMessageSetTrackerLocation(hdlcMessage message)
 
 void handleMessageSetTrackerPose(hdlcMessage message)
 {
-    tracker_pose.x = 0; // North rotation = Roll
-    tracker_pose.y = 0; // West rotation = Pitch
-    tracker_pose.z = 0; // Up rotation = Yaw
+    
 }
 
 void handleMessageRequestReport(hdlcMessage message)
@@ -239,16 +224,26 @@ void handleMessageRequestReport(hdlcMessage message)
     
 }
 
-void sendReportTrackerPose(Telemetry::AxisData& pose)
+void sendReportTelemetry(Telemetry::TelemetryStruct& telemetry)
 {
     hdlcMessage message;
-    smpMessageReportTrackerPose tracker_pose;
+    smpMessageReportTelemetry telemetry_report;
 
-    tracker_pose.roll = pose.x;
-    tracker_pose.pitch = pose.y;
-    tracker_pose.yaw = pose.z;
+    telemetry_report.latitude.value = telemetry.latitude;
+    telemetry_report.longitude.value = telemetry.longitude;
+    telemetry_report.altitude.value = telemetry.altitude;
+    telemetry_report.altitude_relative.value = telemetry.altitude_relative;
+    telemetry_report.altitude_barometric.value = telemetry.altitude_barometric;
+    telemetry_report.velocity_horizontal.value = telemetry.velocity_horizontal;
+    telemetry_report.velocity_vertical.value = telemetry.velocity_vertical;
+    telemetry_report.roll.value = telemetry.roll;
+    telemetry_report.pitch.value = telemetry.pitch;
+    telemetry_report.heading.value = telemetry.heading;
+    telemetry_report.course.value = telemetry.course;
+    telemetry_report.temperature.value = telemetry.temperature;
+    telemetry_report.pressure.value = telemetry.pressure;
 
-    smpMessageReportPositionEncode(node_id_, node_type_, position, message);
+    smpMessageReportTelemetryEncode(node_id_, node_type_, telemetry_report, message);
 
     usb.send(message);
 }
