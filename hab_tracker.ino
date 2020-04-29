@@ -3,6 +3,7 @@
 #include <PID_v1.h>
 
 #include <Adafruit_PWMServoDriver.h>
+#include <TinyGPS++.h>
 #include <SimpleServo.h>
 #include <Timer.h>
 #include <Log.h>
@@ -96,7 +97,7 @@ void loop() {
     timer_telemetry_check.start();
     timer_servo_update_delay.start();
 
-    double tilt_setpoint;
+    double tilt_setpoint, pan_setpoint;
 
 	while(1)
 	{
@@ -122,10 +123,14 @@ void loop() {
 
 		//Calculate bearing and azimuth to target
         tilt_setpoint = calcAzimuthTo(0, 1, 1);
+        pan_setpoint = TinyGPSPlus::courseTo(0, 0, 1, 1);
 
 		//Move tilt until at azimuth
         tilt_servo.setTargetAngle(tilt_setpoint);
         tilt_servo.update();
+
+        pan_servo.setTargetAngle(pan_setpoint);
+        pan_servo.update();
 
         //Execution LED indicator blinkies
         if(timer_execution_led.check())
