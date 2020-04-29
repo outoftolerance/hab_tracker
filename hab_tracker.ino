@@ -3,6 +3,7 @@
 #include <PID_v1.h>
 
 #include <Adafruit_PWMServoDriver.h>
+#include <SimpleServo.h>
 #include <Timer.h>
 #include <Log.h>
 #include <Telemetry.h>
@@ -10,12 +11,8 @@
 #include <SimpleMessageProtocol.h>
 #include <TinyGPS++.h>
 
-#define PAN_SERVO 0
-#define TILT_SERVO 1
-
-#define SERVO_PWM_FREQUENCY 60  // Analog servos run at ~60 Hz updates
-#define SERVO_PWM_STEP 1        // Size of PWM step for each servo update
-#define SERVO_UPDATE_INTERVAL 25 // Millisecond interval between servo updates
+#define PAN_SERVO_CHANNEL 0
+#define TILT_SERVO_CHANNEL 1
 
 #define PAN_SERVO_PWM_MIN  150  // this is the 'minimum' pulse length count (out of 4096) Left
 #define PAN_SERVO_PWM_MAX  600  // this is the 'maximum' pulse length count (out of 4096) Right
@@ -26,6 +23,8 @@ Stream& logging_output_stream = Serial;                     /**< Logging output 
 Stream& command_input_stream = Serial;                      /**< Message and command interface stream */
 
 Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();    /**< Adafruit servo driver object */
+SimpleServo tilt_servo(TILT_SERVO_PWM_MIN, TILT_SERVO_PWM_MAX, TILT_SERVO_CHANNEL, &servo_driver);
+SimpleServo pan_servo(PAN_SERVO_PWM_MIN, PAN_SERVO_PWM_MAX, PAN_SERVO_CHANNEL, &servo_driver);
 
 /**
  * @brief      Callback function handles new messages from HDLC
@@ -35,7 +34,6 @@ Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();    /**< Adafru
 void handleMessageCallback(hdlcMessage message);
 
 float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float target_altitude);
-int calcServoMode(float setpoint, float current, int step, int min, int max)
 void stop();
 
 SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
@@ -91,7 +89,6 @@ void setup() {
 void loop() {
     timer_execution_led.setInterval(1000);
     timer_telemetry_check.setInterval(5);
-    timer_servo_update_delay.setInterval(SERVO_UPDATE_INTERVAL);
     
     TelemetryStruct current_telemetry;                      /**< Current telemetry */
 
@@ -99,7 +96,7 @@ void loop() {
     timer_telemetry_check.start();
     timer_servo_update_delay.start();
 
-    double tilt_setpoint, tilt_input, tilt_output = TILT_SERVO_PWM_MAX, tilt_target;
+    double tilt_setpoint;
 
 	while(1)
 	{
@@ -125,18 +122,10 @@ void loop() {
 
 		//Calculate bearing and azimuth to target
         tilt_setpoint = calcAzimuthTo(0, 1, 1);
-        tilt_setpoint = 45;
-        tilt_input = current_telemetry.roll - 90;
 
 		//Move tilt until at azimuth
-        if(timer_servo_update_delay.check())
-        {
-            tilt_output = calcServoMove(float tilt_setpoint, float tilt_output, int SERVO_PWM_STEP, int TILT_SERVO_PWM_MAX, int TILT_SERVO_PWM_MIN)
-            
-            servo_driver.setPWM(TILT_SERVO, 0, tilt_output);
-
-            timer_servo_update_delay.reset();
-        }
+        tilt_servo.setTargetAngle(tilt_setpoint);
+        tilt_servo.update();
 
         //Execution LED indicator blinkies
         if(timer_execution_led.check())
@@ -172,30 +161,6 @@ float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float
 	float altitude_difference = target_altitude - base_altitude;
 
 	return atan2(altitude_difference, target_horizontal_distance) * 180 / M_PI;
-}
-
-int calcServoMove(float setpoint, float current, int step, int min, int max)
-{
-    int output
-    target = map(setpoint, 0, 90, min, max);
-
-    if(target != current)
-    {
-        if(target - current > SERVO_PWM_STEP)
-        {
-            output += SERVO_PWM_STEP;
-        }
-        else if(target - current < SERVO_PWM_STEP)
-        {
-            output -= SERVO_PWM_STEP;
-        }
-        else
-        {
-            output = target;
-        }
-    }
-
-    return output;
 }
 
 void handleMessageCallback(hdlcMessage message)
