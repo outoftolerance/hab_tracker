@@ -12,8 +12,9 @@
 #include <SimpleMessageProtocol.h>
 #include <TinyGPS++.h>
 
-#define PAN_SERVO_CHANNEL 0
-#define TILT_SERVO_CHANNEL 1
+#define PAN_SERVO_CHANNEL 5
+#define TILT_SERVO_CHANNEL 4
+#define GPS_FIX_STATUS 9
 
 #define PAN_SERVO_PWM_MIN  150  // this is the 'minimum' pulse length count (out of 4096) Left
 #define PAN_SERVO_PWM_MAX  600  // this is the 'maximum' pulse length count (out of 4096) Right
@@ -22,18 +23,19 @@
 
 Stream& logging_output_stream = Serial;                     /**< Logging output stream, this is of type Serial_ */
 Stream& command_input_stream = Serial;                      /**< Message and command interface stream */
+Stream& gps_input_stream = Serial1;                         /**< GPS device input stream, this is of type HardwareSerial */
 
 Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();    /**< Adafruit servo driver object */
-SimpleServo tilt_servo(TILT_SERVO_PWM_MIN, TILT_SERVO_PWM_MAX, TILT_SERVO_CHANNEL, &servo_driver);
+SimpleServo tilt_servo(TILT_SERVO_PWM_MAX, TILT_SERVO_PWM_MIN, TILT_SERVO_CHANNEL, &servo_driver);
 SimpleServo pan_servo(PAN_SERVO_PWM_MIN, PAN_SERVO_PWM_MAX, PAN_SERVO_CHANNEL, &servo_driver);
 
-SimpleHDLC usb(command_input_stream, &handleMessageCallback);        /**< HDLC messaging object, linked to message callback */
-Log logger(logging_output_stream, LOG_LEVELS::INFO);                 /**< Log object */
-Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF);              /**< Telemetry object */
+SimpleHDLC usb(command_input_stream, &handleMessageCallback);                               /**< HDLC messaging object, linked to message callback */
+Log logger(logging_output_stream, LOG_LEVELS::INFO);                                        /**< Log object */
+Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF, &gps_input_stream, GPS_FIX_STATUS);  /**< Telemetry object */
 uint8_t node_id_ = 2;
 uint8_t node_type_ = NODE_TYPES::NODE_TYPE_TRACKER;
 
-Telemetry::TelemetryStruct tracker_location;
+uint8_t target_node_id = 1;
 Telemetry::TelemetryStruct target_location;
 
 Timer timer_execution_led;            /**< Timer sets interval between run led blinks */
@@ -69,7 +71,7 @@ void setup() {
     }
     logger.event(LOG_LEVELS::INFO, "Done!");
 
-    //Initialize PWM driver
+    //Initialize PWM driver and servos
     logger.event(LOG_LEVELS::INFO, "Starting PWM Driver...");
     servo_driver.begin();
     servo_driver.setPWMFreq(SERVO_PWM_FREQUENCY);
@@ -94,6 +96,9 @@ void loop() {
 
     double tilt_setpoint, pan_setpoint;
 
+    tilt_servo.start();
+    pan_servo.start();
+
 	while(1)
 	{
 		//Get messages from command interface
@@ -117,15 +122,15 @@ void loop() {
         }
 
 		//Calculate bearing and azimuth to target
-        tilt_setpoint = calcAzimuthTo(tracker_location.altitude, target_location.altitude, TinyGPSPlus::distanceBetween(tracker_location.latitude, tracker_location.longitude, target_location.latitude, target_location.longitude));
-        pan_setpoint = TinyGPSPlus::courseTo(tracker_location.latitude, tracker_location.longitude, target_location.latitude, target_location.longitude);
+        tilt_setpoint = calcAzimuthTo(current_telemetry.altitude, target_location.altitude, TinyGPSPlus::distanceBetween(current_telemetry.latitude, current_telemetry.longitude, target_location.latitude, target_location.longitude));
+        pan_setpoint = TinyGPSPlus::courseTo(current_telemetry.latitude, current_telemetry.longitude, target_location.latitude, target_location.longitude);
 
 		//Move servos until at target
         tilt_servo.setTargetAngle(tilt_setpoint);
-        tilt_servo.update();
+        tilt_servo.move();
         
         pan_servo.setTargetAngle(pan_setpoint);
-        pan_servo.update();
+        pan_servo.move();
 
         //Update current tracker pose
         tracker_location.pitch = tilt_servo.getCurrentAngle();
@@ -144,16 +149,18 @@ void loop() {
             }
 
             //Print a bunch of debug information
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Latitude   ", current_telemetry.latitude);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude  ", current_telemetry.longitude);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude   ", current_telemetry.altitude);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Course     ", current_telemetry.course);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll       ", current_telemetry.roll);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch      ", current_telemetry.pitch);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading    ", current_telemetry.heading);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Altitude   ", current_telemetry.altitude_barometric);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Pressure   ", current_telemetry.pressure);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Temperature", current_telemetry.temperature);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Latitude    ", current_telemetry.latitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude   ", current_telemetry.longitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude    ", current_telemetry.altitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Elevation   ", current_telemetry.elevation);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Azimuth     ", current_telemetry.azimuth);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Course      ", current_telemetry.course);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll        ", current_telemetry.roll);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch       ", current_telemetry.pitch);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading     ", current_telemetry.heading);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Altitude    ", current_telemetry.altitude_barometric);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Pressure    ", current_telemetry.pressure);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Temperature ", current_telemetry.temperature);
 
             timer_execution_led.reset();
         }
@@ -181,6 +188,10 @@ void handleMessageCallback(hdlcMessage message)
             logger.event(LOG_LEVELS::INFO, "Received non-acknowledgement.");
             //handleMessageProtoNack(message);
             break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_REPORT_TELEMETRY:
+            logger.event(LOG_LEVELS::INFO, "Received message: Position Report.");
+            handleMessageTelemetryReport(message);
+            break;
         case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_TARGET_LOCATION:
             logger.event(LOG_LEVELS::INFO, "Received a command to set tracker target.");
             handleMessageSetTrackerTargetLocation(message);
@@ -200,18 +211,30 @@ void handleMessageCallback(hdlcMessage message)
     }
 }
 
+void handleMessageTelemetryReport(hdlcMessage& message)
+{
+    //Is this a telemetry message from the target?
+    if(message.node_id == target_node_id)
+    {
+        //Decode and parse for target location
+        smpMessageReportTelemetry report;
+        smpMessageReportTelemetryDecode(message, report);
+
+        target_location.latitude = report.latitude;
+        target_location.longitude = report.longitude;
+        target_location.altitude = report.altitude;
+    }
+    else
+    {
+        logger.event(LOG_LEVELS::INFO, "Ignoring telemetry report message.");
+    }
+}
+
 void handleMessageSetTrackerTargetLocation(hdlcMessage message)
 {
     target_location.latitude = 0;
     target_location.longitude = 0;
     target_location.altitude = 0;
-}
-
-void handleMessageSetTrackerLocation(hdlcMessage message)
-{
-    tracker_location.latitude = 0;
-    tracker_location.longitude = 0;
-    tracker_location.altitude = 0;
 }
 
 void handleMessageSetTrackerPose(hdlcMessage message)
@@ -232,8 +255,12 @@ void sendReportTelemetry(Telemetry::TelemetryStruct& telemetry)
     telemetry_report.latitude.value = telemetry.latitude;
     telemetry_report.longitude.value = telemetry.longitude;
     telemetry_report.altitude.value = telemetry.altitude;
+    telemetry_report.altitude_ellipsoid.value = telemetry.altitude_ellipsoid;
     telemetry_report.altitude_relative.value = telemetry.altitude_relative;
     telemetry_report.altitude_barometric.value = telemetry.altitude_barometric;
+    telemetry_report.elevation.value = telemetry.elevation;
+    telemetry_report.azimuth.value = telemetry.azimuth;
+    telemetry_report.gps_snr.value = telemetry.gps_snr;
     telemetry_report.velocity_horizontal.value = telemetry.velocity_horizontal;
     telemetry_report.velocity_vertical.value = telemetry.velocity_vertical;
     telemetry_report.roll.value = telemetry.roll;
