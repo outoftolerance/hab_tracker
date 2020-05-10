@@ -1,3 +1,4 @@
+#include "wiring_private.h" // For ATSAMD M0 pinPeripheral() function
 #include <Wire.h>
 #include <Math.h>
 #include <PID_v1.h>
@@ -21,15 +22,40 @@
 #define TILT_SERVO_PWM_MIN  260 // Vertical
 #define TILT_SERVO_PWM_MAX  470 // Horizontal
 
-Stream& logging_output_stream = Serial;                     /**< Logging output stream, this is of type Serial_ */
-Stream& command_input_stream = Serial;                      /**< Message and command interface stream */
-Stream& gps_input_stream = Serial1;                         /**< GPS device input stream, this is of type HardwareSerial */
+/*
+ * Creating some new Serial ports using M0 SERCOM for peripherals
+ *
+ * Notes for Adafruit Feather M0 pre-defined Serial ports:
+ *     - Serial goes to USB port interface (PA24, PA25)
+ *     - Serial1 is broken out on the board and uses pins 1/PA10 (TX), 0/PA11 (RX)
+ *     - Serial5 is on pins 30/PB22 (TX), 31/PB23 (RX) but not exposed on the board
+ * 
+ * We are adding the following:
+ *     - Serial2 on pins 10/PA18 (TX), 11/PA16 (RX)
+ *     - Serial3 on pins 4/PA08 (TX), 3/PA09 (RX)
+ */
+Uart Serial2 (&sercom1, 11, 10, SERCOM_RX_PAD_0, UART_TX_PAD_2);    /**< Creating a second serial port using SERCOM1 */
 
-Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();    /**< Adafruit servo driver object */
+/*
+ * @brief Handler function for SERCOM1 (serial port 2)
+ */
+void SERCOM1_Handler()
+{
+  Serial2.IrqHandler();
+}
+
+Stream& logging_output_stream = Serial;             /**< Logging output stream, this is of type Serial_ */
+Stream& command_input_stream = Serial;              /**< Message and command interface stream */
+Stream& gps_input_stream = Serial1;                 /**< GPS device input stream, this is of type HardwareSerial */
+Stream& radio_input_output_stream = Serial2;        /**< Radio input output stream, this is of type HardwareSerial */
+
+SimpleHDLC usb(command_input_stream, &handleMessageCallback);                               /**< HDLC messaging object, linked to message callback */
+SimpleHDLC radio(radio_input_output_stream, &handleMessageCallback);                        /**< HDLC messaging object, linked to message callback */
+
+Adafruit_PWMServoDriver servo_driver = Adafruit_PWMServoDriver();                           /**< Adafruit servo driver object */
 SimpleServo tilt_servo(TILT_SERVO_PWM_MAX, TILT_SERVO_PWM_MIN, TILT_SERVO_CHANNEL, &servo_driver);
 SimpleServo pan_servo(PAN_SERVO_PWM_MIN, PAN_SERVO_PWM_MAX, PAN_SERVO_CHANNEL, &servo_driver);
 
-SimpleHDLC usb(command_input_stream, &handleMessageCallback);                               /**< HDLC messaging object, linked to message callback */
 Log logger(logging_output_stream, LOG_LEVELS::INFO);                                        /**< Log object */
 Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF, &gps_input_stream, GPS_FIX_STATUS);  /**< Telemetry object */
 uint8_t node_id_ = 2;
@@ -60,6 +86,13 @@ void setup() {
     //Start command interface over USB
     logger.event(LOG_LEVELS::INFO, "Starting USB serial interface...");
     //static_cast<HardwareSerial&>(command_input_stream).begin(57600);
+    logger.event(LOG_LEVELS::INFO, "Done!");
+
+    //Start radio modem Serial port
+    logger.event(LOG_LEVELS::INFO, "Starting radio modem serial port...");
+    static_cast<HardwareSerial&>(radio_input_output_stream).begin(57600);
+    pinPeripheral(10, PIO_SERCOM);
+    pinPeripheral(11, PIO_SERCOM);
     logger.event(LOG_LEVELS::INFO, "Done!");
 
     //Initialise the telemetry system
@@ -101,8 +134,9 @@ void loop() {
 
 	while(1)
 	{
-		//Get messages from command interface
+		//Get messages from HDLC interfaces
         usb.receive();
+        radio.receive();
 
         //Telemetry Update
         if(timer_telemetry_check.check())
@@ -132,10 +166,6 @@ void loop() {
         pan_servo.setTargetAngle(pan_setpoint);
         pan_servo.move();
 
-        //Update current tracker pose
-        tracker_location.pitch = tilt_servo.getCurrentAngle();
-        tracker_location.heading = pan_servo.getCurrentAngle();
-
         //Execution LED indicator blinkies
         if(timer_execution_led.check())
         {
@@ -149,12 +179,12 @@ void loop() {
             }
 
             //Print a bunch of debug information
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Latitude    ", current_telemetry.latitude);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude   ", current_telemetry.longitude);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude    ", current_telemetry.altitude);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Elevation   ", current_telemetry.elevation);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Azimuth     ", current_telemetry.azimuth);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Course      ", current_telemetry.course);
+            logger.event(LOG_LEVELS::INFO, "Current GPS Latitude    ", current_telemetry.latitude);
+            logger.event(LOG_LEVELS::INFO, "Current GPS Longitude   ", current_telemetry.longitude);
+            logger.event(LOG_LEVELS::INFO, "Current GPS Altitude    ", current_telemetry.altitude);
+            logger.event(LOG_LEVELS::INFO, "Current GPS Elevation   ", current_telemetry.elevation);
+            logger.event(LOG_LEVELS::INFO, "Current GPS Azimuth     ", current_telemetry.azimuth);
+            logger.event(LOG_LEVELS::INFO, "Current GPS Course      ", current_telemetry.course);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll        ", current_telemetry.roll);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch       ", current_telemetry.pitch);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading     ", current_telemetry.heading);
@@ -196,10 +226,6 @@ void handleMessageCallback(hdlcMessage message)
             logger.event(LOG_LEVELS::INFO, "Received a command to set tracker target.");
             handleMessageSetTrackerTargetLocation(message);
             break;
-        case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_LOCATION:
-            logger.event(LOG_LEVELS::INFO, "Received a command to set tracker location.");
-            handleMessageSetTrackerLocation(message);
-            break;
         case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_POSE:
             logger.event(LOG_LEVELS::INFO, "Received a command to set tracker pose.");
             handleMessageSetTrackerPose(message);
@@ -216,13 +242,15 @@ void handleMessageTelemetryReport(hdlcMessage& message)
     //Is this a telemetry message from the target?
     if(message.node_id == target_node_id)
     {
+        logger.event(LOG_LEVELS::INFO, "Received telemetry from target! Updating target location.");
+
         //Decode and parse for target location
         smpMessageReportTelemetry report;
         smpMessageReportTelemetryDecode(message, report);
 
-        target_location.latitude = report.latitude;
-        target_location.longitude = report.longitude;
-        target_location.altitude = report.altitude;
+        target_location.latitude = report.latitude.value;
+        target_location.longitude = report.longitude.value;
+        target_location.altitude = report.altitude.value;
     }
     else
     {
