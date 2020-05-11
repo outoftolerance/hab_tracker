@@ -127,7 +127,7 @@ void loop() {
     timer_telemetry_check.start();
     timer_servo_update_delay.start();
 
-    double tilt_setpoint, pan_setpoint;
+    double target_distance, tilt_setpoint, pan_setpoint;
 
     tilt_servo.start();
     pan_servo.start();
@@ -156,7 +156,8 @@ void loop() {
         }
 
 		//Calculate bearing and azimuth to target
-        tilt_setpoint = calcAzimuthTo(current_telemetry.altitude, target_location.altitude, TinyGPSPlus::distanceBetween(current_telemetry.latitude, current_telemetry.longitude, target_location.latitude, target_location.longitude));
+        target_distance = TinyGPSPlus::distanceBetween(current_telemetry.latitude, current_telemetry.longitude, target_location.latitude, target_location.longitude);
+        tilt_setpoint = calcAzimuthTo(current_telemetry.altitude, target_location.altitude, target_distance);
         pan_setpoint = TinyGPSPlus::courseTo(current_telemetry.latitude, current_telemetry.longitude, target_location.latitude, target_location.longitude);
 
 		//Move servos until at target
@@ -178,13 +179,16 @@ void loop() {
                 digitalWrite(LED_BUILTIN, HIGH);
             }
 
+            //Send Heartbeat message
+            sendHeartbeat(0);
+
             //Print a bunch of debug information
-            logger.event(LOG_LEVELS::INFO, "Current GPS Latitude    ", current_telemetry.latitude);
-            logger.event(LOG_LEVELS::INFO, "Current GPS Longitude   ", current_telemetry.longitude);
-            logger.event(LOG_LEVELS::INFO, "Current GPS Altitude    ", current_telemetry.altitude);
-            logger.event(LOG_LEVELS::INFO, "Current GPS Elevation   ", current_telemetry.elevation);
-            logger.event(LOG_LEVELS::INFO, "Current GPS Azimuth     ", current_telemetry.azimuth);
-            logger.event(LOG_LEVELS::INFO, "Current GPS Course      ", current_telemetry.course);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Latitude    ", current_telemetry.latitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude   ", current_telemetry.longitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude    ", current_telemetry.altitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Elevation   ", current_telemetry.elevation);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Azimuth     ", current_telemetry.azimuth);
+            logger.event(LOG_LEVELS::DEBUG, "Current GPS Course      ", current_telemetry.course);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll        ", current_telemetry.roll);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch       ", current_telemetry.pitch);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading     ", current_telemetry.heading);
@@ -192,12 +196,20 @@ void loop() {
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Pressure    ", current_telemetry.pressure);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Temperature ", current_telemetry.temperature);
 
+            logger.event(LOG_LEVELS::DEBUG, "Current Target Latitude  ", target_location.latitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current Target Longitude ", target_location.longitude);
+            logger.event(LOG_LEVELS::DEBUG, "Current Target Altitude   ", target_location.altitude);
+
+            logger.event(LOG_LEVELS::DEBUG, "Current Target Distance   ", target_distance);
+            logger.event(LOG_LEVELS::DEBUG, "Current Tilt Setpoint     ", tilt_setpoint);
+            logger.event(LOG_LEVELS::DEBUG, "Current Pan Setpoint      ", pan_setpoint);
+
             timer_execution_led.reset();
         }
 	}
 }
 
-float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float target_altitude)
+float calcAzimuthTo(float base_altitude, float target_altitude, float target_horizontal_distance)
 {
 	float altitude_difference = target_altitude - base_altitude;
 
@@ -206,35 +218,44 @@ float calcAzimuthTo(float base_altitude, float target_horizontal_distance, float
 
 void handleMessageCallback(hdlcMessage message)
 {
-    logger.event(LOG_LEVELS::INFO, "Received a message!");
+    logger.event(LOG_LEVELS::DEBUG, "Received a message!");
 
     switch(message.command)
     {
-        case MESSAGE_TYPES::MESSAGE_TYPE_PROTO_ACK:
-            logger.event(LOG_LEVELS::INFO, "Received acknowledgement.");
-            //handleMessageProtoAck(message);
-            break;
-        case MESSAGE_TYPES::MESSAGE_TYPE_PROTO_NACK:
-            logger.event(LOG_LEVELS::INFO, "Received non-acknowledgement.");
-            //handleMessageProtoNack(message);
+        case MESSAGE_TYPES::MESSAGE_TYPE_HEARTBEAT:
+            logger.event(LOG_LEVELS::DEBUG, "Received message: Heartbeat.");
+            handleMessageHeartbeat(message);
             break;
         case MESSAGE_TYPES::MESSAGE_TYPE_REPORT_TELEMETRY:
-            logger.event(LOG_LEVELS::INFO, "Received message: Position Report.");
+            logger.event(LOG_LEVELS::DEBUG, "Received message: Position Report.");
             handleMessageTelemetryReport(message);
             break;
         case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_TARGET_LOCATION:
-            logger.event(LOG_LEVELS::INFO, "Received a command to set tracker target.");
+            logger.event(LOG_LEVELS::DEBUG, "Received a command to set tracker target.");
             handleMessageSetTrackerTargetLocation(message);
             break;
         case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_SET_TRACKER_POSE:
-            logger.event(LOG_LEVELS::INFO, "Received a command to set tracker pose.");
+            logger.event(LOG_LEVELS::DEBUG, "Received a command to set tracker pose.");
             handleMessageSetTrackerPose(message);
             break;
         case MESSAGE_TYPES::MESSAGE_TYPE_COMMAND_REQUEST_REPORT:
-            logger.event(LOG_LEVELS::INFO, "Received a command to request a report.");
+            logger.event(LOG_LEVELS::DEBUG, "Received a command to request a report.");
             handleMessageRequestReport(message);
             break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_PROTO_ACK:
+            logger.event(LOG_LEVELS::DEBUG, "Received acknowledgement.");
+            handleMessageProtoAck(message);
+            break;
+        case MESSAGE_TYPES::MESSAGE_TYPE_PROTO_NACK:
+            logger.event(LOG_LEVELS::DEBUG, "Received non-acknowledgement.");
+            handleMessageProtoNack(message);
+            break;
     }
+}
+
+void handleMessageHeartbeat(hdlcMessage& message)
+{
+    logger.event(LOG_LEVELS::DEBUG, "Ignoring heartbeat message.");
 }
 
 void handleMessageTelemetryReport(hdlcMessage& message)
@@ -254,7 +275,7 @@ void handleMessageTelemetryReport(hdlcMessage& message)
     }
     else
     {
-        logger.event(LOG_LEVELS::INFO, "Ignoring telemetry report message.");
+        logger.event(LOG_LEVELS::WARNING, "Ignoring telemetry report message.");
     }
 }
 
@@ -275,6 +296,28 @@ void handleMessageRequestReport(hdlcMessage message)
     
 }
 
+void handleMessageProtoAck(hdlcMessage& message)
+{
+
+}
+
+void handleMessageProtoNack(hdlcMessage& message)
+{
+
+}
+
+void sendHeartbeat(uint8_t state)
+{
+    hdlcMessage message;
+    smpMessageHeartbeat heartbeat;
+
+    heartbeat.state.value = state;
+
+    smpMessageHeartbeatEncode(node_id_, node_type_, heartbeat, message);
+
+    radio.send(message);
+}
+
 void sendReportTelemetry(Telemetry::TelemetryStruct& telemetry)
 {
     hdlcMessage message;
@@ -286,17 +329,12 @@ void sendReportTelemetry(Telemetry::TelemetryStruct& telemetry)
     telemetry_report.altitude_ellipsoid.value = telemetry.altitude_ellipsoid;
     telemetry_report.altitude_relative.value = telemetry.altitude_relative;
     telemetry_report.altitude_barometric.value = telemetry.altitude_barometric;
-    telemetry_report.elevation.value = telemetry.elevation;
-    telemetry_report.azimuth.value = telemetry.azimuth;
-    telemetry_report.gps_snr.value = telemetry.gps_snr;
     telemetry_report.velocity_horizontal.value = telemetry.velocity_horizontal;
     telemetry_report.velocity_vertical.value = telemetry.velocity_vertical;
     telemetry_report.roll.value = telemetry.roll;
     telemetry_report.pitch.value = telemetry.pitch;
     telemetry_report.heading.value = telemetry.heading;
     telemetry_report.course.value = telemetry.course;
-    telemetry_report.temperature.value = telemetry.temperature;
-    telemetry_report.pressure.value = telemetry.pressure;
 
     smpMessageReportTelemetryEncode(node_id_, node_type_, telemetry_report, message);
 
