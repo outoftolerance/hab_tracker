@@ -73,7 +73,7 @@ Timer timer_servo_update_delay;       /**< Timer sets interval between position 
  */
 void setup() {
     //Sleep until debug can connect
-    while(!Serial);
+    //while(!Serial);
 
     //Setup pin modes
     pinMode(LED_BUILTIN, OUTPUT);
