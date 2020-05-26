@@ -15,7 +15,6 @@
 
 #define PAN_SERVO_CHANNEL 5
 #define TILT_SERVO_CHANNEL 4
-#define GPS_FIX_STATUS 9
 
 #define PAN_SERVO_PWM_MIN  150  // this is the 'minimum' pulse length count (out of 4096) Left
 #define PAN_SERVO_PWM_MAX  600  // this is the 'maximum' pulse length count (out of 4096) Right
@@ -57,12 +56,12 @@ SimpleServo tilt_servo(TILT_SERVO_PWM_MAX, TILT_SERVO_PWM_MIN, TILT_SERVO_CHANNE
 SimpleServo pan_servo(PAN_SERVO_PWM_MIN, PAN_SERVO_PWM_MAX, PAN_SERVO_CHANNEL, &servo_driver);
 
 Log logger(logging_output_stream, LOG_LEVELS::INFO);                                        /**< Log object */
-Telemetry telemetry(IMU_TYPES::IMU_TYPE_ADAFRUIT_9DOF, &gps_input_stream, GPS_FIX_STATUS);  /**< Telemetry object */
+Telemetry telemetry(&gps_input_stream);                                                     /**< Telemetry object */
 uint8_t node_id_ = 2;
 uint8_t node_type_ = NODE_TYPES::NODE_TYPE_TRACKER;
 
 uint8_t target_node_id = 1;
-Telemetry::TelemetryStruct target_location;
+SimpleUtils::TelemetryStruct target_location;
 
 Timer timer_execution_led;            /**< Timer sets interval between run led blinks */
 Timer timer_telemetry_check;          /**< Timer sets interval between telemetry checks */
@@ -121,7 +120,7 @@ void loop() {
     timer_execution_led.setInterval(1000);
     timer_telemetry_check.setInterval(5);
     
-    Telemetry::TelemetryStruct current_telemetry;                      /**< Current telemetry */
+    SimpleUtils::TelemetryStruct current_telemetry;                      /**< Current telemetry */
 
     timer_execution_led.start();
     timer_telemetry_check.start();
@@ -186,15 +185,14 @@ void loop() {
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Latitude    ", current_telemetry.latitude);
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Longitude   ", current_telemetry.longitude);
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Altitude    ", current_telemetry.altitude);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Elevation   ", current_telemetry.elevation);
-            logger.event(LOG_LEVELS::DEBUG, "Current GPS Azimuth     ", current_telemetry.azimuth);
             logger.event(LOG_LEVELS::DEBUG, "Current GPS Course      ", current_telemetry.course);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Roll        ", current_telemetry.roll);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Pitch       ", current_telemetry.pitch);
+            logger.event(LOG_LEVELS::DEBUG, "Current IMU Yaw         ", current_telemetry.yaw);
             logger.event(LOG_LEVELS::DEBUG, "Current IMU Heading     ", current_telemetry.heading);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Altitude    ", current_telemetry.altitude_barometric);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Pressure    ", current_telemetry.pressure);
-            logger.event(LOG_LEVELS::DEBUG, "Current IMU Temperature ", current_telemetry.temperature);
+            logger.event(LOG_LEVELS::DEBUG, "Current Baro Altitude   ", current_telemetry.altitude_barometric);
+            logger.event(LOG_LEVELS::DEBUG, "Current Baro Pressure   ", current_telemetry.pressure);
+            logger.event(LOG_LEVELS::DEBUG, "Current Baro Temperature", current_telemetry.temperature);
 
             logger.event(LOG_LEVELS::DEBUG, "Current Target Latitude  ", target_location.latitude);
             logger.event(LOG_LEVELS::DEBUG, "Current Target Longitude ", target_location.longitude);
@@ -318,7 +316,7 @@ void sendHeartbeat(uint8_t state)
     radio.send(message);
 }
 
-void sendReportTelemetry(Telemetry::TelemetryStruct& telemetry)
+void sendReportTelemetry(SimpleUtils::TelemetryStruct& telemetry)
 {
     hdlcMessage message;
     smpMessageReportTelemetry telemetry_report;
